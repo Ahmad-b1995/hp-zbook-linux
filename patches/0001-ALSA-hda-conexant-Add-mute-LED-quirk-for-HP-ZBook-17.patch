@@ -1,4 +1,4 @@
-From ce1f64d40a7923efa1f0630f0c68103bf21625d0 Mon Sep 17 00:00:00 2001
+From e18fafa8fada04d671dabb063882b475c5f6529a Mon Sep 17 00:00:00 2001
 From: ahmad baghereslami <ahmad.b1995@gmail.com>
 Date: Thu, 29 Oct 2026 20:27:52 +0330
 Subject: [PATCH] ALSA: hda/conexant: Add mute LED quirk for HP ZBook 17 G3
@@ -20,6 +20,8 @@ the microphone keep working, and the mic-mute key still mutes the mic.
 The GPIO and pin tests, reading HP's driver and this patch were done with
 the help of an AI coding assistant (Claude); I verified the LED behaviour
 on the machine.
+
+Signed-off-by: ahmad baghereslami <ahmad.b1995@gmail.com>
 ---
  sound/hda/codecs/conexant.c | 13 +++++++++++++
  1 file changed, 13 insertions(+)
