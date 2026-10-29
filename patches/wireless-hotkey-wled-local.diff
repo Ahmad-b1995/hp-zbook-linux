@@ -1,0 +1,87 @@
+--- wireless-hotkey.c.orig	2026-10-30 01:50:43.634072383 +0330
++++ wireless-hotkey.c	2026-10-30 01:50:43.650743388 +0330
+@@ -10,6 +10,7 @@
+ #include <linux/module.h>
+ #include <linux/init.h>
+ #include <linux/input.h>
++#include <linux/leds.h>
+ #include <linux/platform_device.h>
+ #include <linux/acpi.h>
+ #include <acpi/acpi_bus.h>
+@@ -25,6 +26,9 @@
+ struct wl_button {
+ 	struct input_dev *input_dev;
+ 	char phys[32];
++	struct acpi_device *adev;
++	struct led_classdev led;
++	bool has_led;
+ };
+ 
+ static const struct acpi_device_id wl_ids[] = {
+@@ -63,10 +67,44 @@
+ 	return err;
+ }
+ 
++/*
++ * HP firmware drives the airplane mode LED through the HPQ6001 device's WLED
++ * method; Windows calls it when the radio state changes.
++ */
++static int wireless_led_set(struct led_classdev *led, enum led_brightness value)
++{
++	struct wl_button *button = container_of(led, struct wl_button, led);
++	acpi_status status;
++
++	status = acpi_execute_simple_method(button->adev->handle, "WLED", value ? 1 : 0);
++	return ACPI_SUCCESS(status) ? 0 : -EIO;
++}
++
++static int wireless_led_setup(struct acpi_device *device)
++{
++	struct wl_button *button = acpi_driver_data(device);
++	int err;
++
++	if (!acpi_has_method(device->handle, "WLED"))
++		return 0;
++
++	button->led.name = "platform::wlan";
++	button->led.max_brightness = 1;
++	button->led.brightness_set_blocking = wireless_led_set;
++	button->led.default_trigger = "rfkill-any";
++	err = led_classdev_register(&device->dev, &button->led);
++	if (err)
++		return err;
++	button->has_led = true;
++	return 0;
++}
++
+ static void wireless_input_destroy(struct acpi_device *device)
+ {
+ 	struct wl_button *button = acpi_driver_data(device);
+ 
++	if (button->has_led)
++		led_classdev_unregister(&button->led);
+ 	input_unregister_device(button->input_dev);
+ 	kfree(button);
+ }
+@@ -96,14 +134,20 @@
+ 		return -ENOMEM;
+ 
+ 	device->driver_data = button;
++	button->adev = device;
+ 
+ 	err = wireless_input_setup(device);
+ 	if (err) {
+ 		pr_err("Failed to setup wireless hotkeys\n");
+ 		kfree(button);
++		return err;
+ 	}
+ 
+-	return err;
++	err = wireless_led_setup(device);
++	if (err)
++		pr_warn("Failed to register the airplane mode LED: %d\n", err);
++
++	return 0;
+ }
+ 
+ static void wl_remove(struct acpi_device *device)

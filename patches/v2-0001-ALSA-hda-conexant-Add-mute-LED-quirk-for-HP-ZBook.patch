@@ -1,4 +1,4 @@
-From a83fc36f8a0e66560e84516e8b2b30c023351041 Mon Sep 17 00:00:00 2001
+From 611062d5e1590db18b52755864581896465a1436 Mon Sep 17 00:00:00 2001
 From: ahmad baghereslami <ahmad.b1995@gmail.com>
 Date: Fri, 30 Oct 2026 01:40:56 +0330
 Subject: [PATCH v2] ALSA: hda/conexant: Add mute LED quirk for HP ZBook 17 G3
@@ -21,6 +21,8 @@ and the microphone keep working.
 Finding the LEDs (the GPIO tests and reading HP's driver) and writing
 this patch were done with the help of an AI coding assistant (Claude);
 I checked the LEDs on the machine.
+
+Signed-off-by: ahmad baghereslami <ahmad.b1995@gmail.com>
 ---
 
 Notes:
