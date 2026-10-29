@@ -129,28 +129,5 @@ if [ -n "$CODEC" ]; then
 	echo "$PS" > /sys/module/snd_hda_intel/parameters/power_save
 fi
 
-step "5/5 mic-mute LED through the embedded controller"
-# The firmware has an unused method, EC0.SAST, that sets bit 0 (AUDS) of EC register
-# 0xE7; bit 1 there is SPKR. Set each bit for 4 seconds exactly as SAST would, then
-# restore the register. Needs ec_sys with write support, removed again afterwards.
-modprobe -r ec_sys 2>/dev/null
-if modprobe ec_sys write_support=1; then
-	IO=/sys/kernel/debug/ec/ec0/io
-	ecget() { od -An -tu1 -j 231 -N1 "$IO" | tr -d ' '; }
-	ecset() { printf "\\$(printf %03o "$1")" | dd of="$IO" bs=1 seek=231 count=1 conv=notrunc status=none; }
-	orig="$(ecget)"
-	note "EC 0xE7 before: $orig"
-	for bit in 0 1; do
-		ecset $(( orig | (1 << bit) )); sleep 4
-		note "EC 0xE7 with bit $bit set: $(ecget)"
-		ecset "$orig"
-		ask "Bit $bit: did an LED change while it was set? (m = mic-mute LED, s = speaker-mute LED, n = nothing):"
-	done
-	note "EC 0xE7 restored: $(ecget)"
-	modprobe -r ec_sys
-else
-	echo "ec_sys write support not available; skipped"
-fi
-
 step "done"
 echo "Results are in $OUT. To go back to Ubuntu's modules: sudo bash $0 --undo"

@@ -27,6 +27,9 @@ because the hwmon code is older). The attached backport keeps the same logic:
 cache the fan count in hp_wmi_setup_fan_settings(), hide the fan and pwm
 attributes when it is not positive, and skip the initial fan settings then.
 
-Tested on the ZBook 17 G3 with 7.0.0-38.38-generic: TEST RESULTS GO HERE.
+Tested on the ZBook 17 G3 with 7.0.0-38.38-generic and the backport built as an
+out-of-tree module: the boot warning is gone and hp-wmi logs
+"No usable fans reported by WMI, disabling fan support"; the hp hwmon device no
+longer has pwm1_enable; hotkeys (brightness) and the wireless button still work.
 
 Attachment: ubuntu-backport-e931e54.diff (build/hpwmi/ in this project)

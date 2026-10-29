@@ -1,0 +1,74 @@
+From ce1f64d40a7923efa1f0630f0c68103bf21625d0 Mon Sep 17 00:00:00 2001
+From: ahmad baghereslami <ahmad.b1995@gmail.com>
+Date: Thu, 29 Oct 2026 20:27:52 +0330
+Subject: [PATCH] ALSA: hda/conexant: Add mute LED quirk for HP ZBook 17 G3
+
+The HP ZBook 17 G3 (PCI SSID 103c:80d6, codec CX20724 with SSID
+103c:80f8) has a speaker-mute LED wired to GPIO0 of the codec, the same
+as HP's other Conexant laptops of that generation. HP's Windows driver
+for this model sets EnableGPIO0MuteSignal. The mic-mute key's LED is not
+connected to the codec: toggling each of GPIO0-6, the EAPD of the unused
+pins 0x1d and 0x22, and the VREF of pins 0x18 and 0x1d only ever lit the
+speaker-mute LED (GPIO0). CXT_FIXUP_MUTE_LED_GPIO would also register a
+mic-mute LED on GPIO1, which drives nothing here, so add a fixup that
+only sets up the mute LED on GPIO0.
+
+Tested on an HP ZBook 17 G3 with Ubuntu's 7.0.0 kernel and this change
+applied to its conexant.c: hda::mute follows the master mute, sound and
+the microphone keep working, and the mic-mute key still mutes the mic.
+
+The GPIO and pin tests, reading HP's driver and this patch were done with
+the help of an AI coding assistant (Claude); I verified the LED behaviour
+on the machine.
+---
+ sound/hda/codecs/conexant.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/sound/hda/codecs/conexant.c b/sound/hda/codecs/conexant.c
+index a141c94ee..525a6d0d1 100644
+--- a/sound/hda/codecs/conexant.c
++++ b/sound/hda/codecs/conexant.c
+@@ -305,6 +305,7 @@ enum {
+ 	CXT_FIXUP_ACER_ASPIRE_GO_MUTE_LED,
+ 	CXT_FIXUP_HP_ELITEONE_OUT_DIS,
+ 	CXT_FIXUP_HP_ZBOOK_MUTE_LED,
++	CXT_FIXUP_MUTE_LED_GPIO0,
+ 	CXT_FIXUP_HEADSET_MIC,
+ 	CXT_FIXUP_HP_MIC_NO_PRESENCE,
+ 	CXT_PINCFG_SWS_JS201D,
+@@ -810,6 +811,13 @@ static void cxt_fixup_hp_zbook_mute_led(struct hda_codec *codec,
+ 		cxt_setup_mute_led(codec, 0x10, 0x20);
+ }
+ 
++static void cxt_fixup_mute_led_gpio0(struct hda_codec *codec,
++				     const struct hda_fixup *fix, int action)
++{
++	if (action == HDA_FIXUP_ACT_PRE_PROBE)
++		cxt_setup_mute_led(codec, 0x01, 0);
++}
++
+ static void cxt_fixup_acer_aspire_go_mute_led(struct hda_codec *codec,
+ 					      const struct hda_fixup *fix, int action)
+ {
+@@ -1089,6 +1097,10 @@ static const struct hda_fixup cxt_fixups[] = {
+ 		.type = HDA_FIXUP_FUNC,
+ 		.v.func = cxt_fixup_hp_zbook_mute_led,
+ 	},
++	[CXT_FIXUP_MUTE_LED_GPIO0] = {
++		.type = HDA_FIXUP_FUNC,
++		.v.func = cxt_fixup_mute_led_gpio0,
++	},
+ 	[CXT_FIXUP_HEADSET_MIC] = {
+ 		.type = HDA_FIXUP_FUNC,
+ 		.v.func = cxt_fixup_headset_mic,
+@@ -1193,6 +1205,7 @@ static const struct hda_quirk cxt5066_fixups[] = {
+ 	SND_PCI_QUIRK(0x1025, 0x1937, "Acer Aspire Go 16", CXT_FIXUP_ACER_ASPIRE_GO_MUTE_LED),
+ 	SND_PCI_QUIRK(0x103c, 0x8079, "HP EliteBook 840 G3", CXT_FIXUP_HP_DOCK),
+ 	SND_PCI_QUIRK(0x103c, 0x807C, "HP EliteBook 820 G3", CXT_FIXUP_HP_DOCK),
++	SND_PCI_QUIRK(0x103c, 0x80d6, "HP ZBook 17 G3", CXT_FIXUP_MUTE_LED_GPIO0),
+ 	SND_PCI_QUIRK(0x103c, 0x80FD, "HP ProBook 640 G2", CXT_FIXUP_HP_DOCK),
+ 	SND_PCI_QUIRK(0x103c, 0x8115, "HP Z1 Gen3", CXT_FIXUP_HP_GATE_MIC),
+ 	SND_PCI_QUIRK(0x103c, 0x814f, "HP ZBook 15u G3", CXT_FIXUP_MUTE_LED_GPIO),
+-- 
+2.53.0
+
