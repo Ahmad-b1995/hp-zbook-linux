@@ -1,0 +1,44 @@
+From a1cba5f5c3650797006a596f28c3ffbd46e82959 Mon Sep 17 00:00:00 2001
+From: ahmad baghereslami <ahmad.b1995@gmail.com>
+Date: Thu, 29 Oct 2026 19:19:57 +0330
+Subject: [PATCH] Input: synaptics - enable SMBus for HP ZBook 17 G3
+
+The touchpad on the HP ZBook 17 G3 (PNP: SYN3040 SYN0100 SYN0002
+PNP0f13, board id 2706, fw id 2017334) reports that it supports
+InterTouch, and the kernel suggests reporting it:
+
+  psmouse serio3: synaptics: Your touchpad (PNP: SYN3040 SYN0100 SYN0002
+  PNP0f13) says it can support a different bus. If i2c-hid and hid-rmi
+  are not used, you might want to try setting psmouse.synaptics_intertouch
+  to 1 and report this to linux-input@vger.kernel.org.
+
+With psmouse.synaptics_intertouch=1 it binds over SMBus as
+"Synaptics TM2706-002" through rmi4_smbus (i2c-i801). Pointer motion,
+tapping, the physical buttons, two-finger scrolling and the pointing stick
+with its three buttons all work, as they do over PS/2.
+
+Add its PNP ID to smbus_pnp_ids so it uses SMBus by default.
+
+Tested on an HP ZBook 17 G3 (BIOS N81 01.62) with Ubuntu's 7.0.0 kernel and
+psmouse.synaptics_intertouch=1. The PNP ID was found and the test was run
+with the help of an AI coding assistant (Claude); I verified the result on
+the machine.
+---
+ drivers/input/mouse/synaptics.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index b007e642e..62765222a 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -198,6 +198,7 @@ static const char * const smbus_pnp_ids[] = {
+ 	"SYN1221", /* TUXEDO InfinityBook Pro 14 v5 */
+ 	"SYN3003", /* HP EliteBook 850 G1 */
+ 	"SYN3015", /* HP EliteBook 840 G2 */
++	"SYN3040", /* HP ZBook 17 G3 */
+ 	"SYN3052", /* HP EliteBook 840 G4 */
+ 	"SYN3221", /* HP 15-ay000 */
+ 	"SYN323d", /* HP Spectre X360 13-w013dx */
+-- 
+2.53.0
+
