@@ -60,6 +60,17 @@ for ko in hpwmi/hp-wmi.ko cx/snd-hda-codec-conexant.ko; do
 	[ "$v" = "$KVER" ] || { echo "$ko was built for $v, this kernel is $KVER; rebuild first" >&2; exit 1; }
 done
 
+step "0/4 touchpad back to PS/2 (so it wakes the keyboard light again)"
+# Over SMBus the touchpad bypasses the embedded controller, which lights the
+# keyboard on any PS/2 input, so touching the pad no longer woke the backlight.
+rm -f /etc/modprobe.d/zbook-synaptics-intertouch.conf
+modprobe -r psmouse && modprobe psmouse
+sleep 3
+grep -E '^N: Name=' /proc/bus/input/devices | grep -iE 'synaptics|touchpad' | tee -a "$OUT/answers.txt"
+echo "Keep your hands off the keyboard and touchpad until the keyboard light goes off (about 15 s),"
+echo "then touch the touchpad."
+ask "Did the keyboard light come back on? (y/n):"
+
 step "1/4 installing the patched modules for $KVER"
 install -d "$DEST"
 install -m 0644 "$ROOT/build/hpwmi/hp-wmi.ko" "$ROOT/build/cx/snd-hda-codec-conexant.ko" "$DEST/"
@@ -116,6 +127,29 @@ if [ -n "$CODEC" ]; then
 		ask "$5: did the mic-mute LED blink? (y/n):"
 	done
 	echo "$PS" > /sys/module/snd_hda_intel/parameters/power_save
+fi
+
+step "5/5 mic-mute LED through the embedded controller"
+# The firmware has an unused method, EC0.SAST, that sets bit 0 (AUDS) of EC register
+# 0xE7; bit 1 there is SPKR. Set each bit for 4 seconds exactly as SAST would, then
+# restore the register. Needs ec_sys with write support, removed again afterwards.
+modprobe -r ec_sys 2>/dev/null
+if modprobe ec_sys write_support=1; then
+	IO=/sys/kernel/debug/ec/ec0/io
+	ecget() { od -An -tu1 -j 231 -N1 "$IO" | tr -d ' '; }
+	ecset() { printf "\\$(printf %03o "$1")" | dd of="$IO" bs=1 seek=231 count=1 conv=notrunc status=none; }
+	orig="$(ecget)"
+	note "EC 0xE7 before: $orig"
+	for bit in 0 1; do
+		ecset $(( orig | (1 << bit) )); sleep 4
+		note "EC 0xE7 with bit $bit set: $(ecget)"
+		ecset "$orig"
+		ask "Bit $bit: did an LED change while it was set? (m = mic-mute LED, s = speaker-mute LED, n = nothing):"
+	done
+	note "EC 0xE7 restored: $(ecget)"
+	modprobe -r ec_sys
+else
+	echo "ec_sys write support not available; skipped"
 fi
 
 step "done"
