@@ -15,7 +15,16 @@ done
 
 install -d "$LIB"
 install -m 0755 "$SRC/rebuild.sh" "$LIB/rebuild.sh"
-install -m 0644 "$SRC/hp-wmi-fan-count.diff" "$SRC/wireless-hotkey.c" "$LIB/"
+install -m 0644 "$SRC/hp-wmi-fan-count.diff" "$SRC/wireless-hotkey.c" "$SRC/synaptics-rmi-led.diff" "$LIB/"
+
+# Touchpad corner double tap and LED: udev access for the logged-in user, a user service
+install -m 0755 "$SRC/../touchpad/zbook-touchpad-corner" /usr/local/bin/zbook-touchpad-corner
+install -m 0644 "$SRC/../touchpad/70-zbook-touchpad.rules" /etc/udev/rules.d/70-zbook-touchpad.rules
+install -d /etc/systemd/user
+install -m 0644 "$SRC/../touchpad/zbook-touchpad-corner.service" /etc/systemd/user/
+systemctl --global enable zbook-touchpad-corner.service
+udevadm control --reload
+udevadm trigger --subsystem-match=input --subsystem-match=leds
 
 # Rebuild when a kernel or its headers are installed; clean up when a kernel is removed.
 for dir in postinst.d header_postinst.d; do

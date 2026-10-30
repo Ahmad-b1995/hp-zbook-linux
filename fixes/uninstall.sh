@@ -13,4 +13,7 @@ for k in /lib/modules/*/; do
 	depmod "$(basename "$k")"
 done
 rm -rf /usr/local/lib/zbook-fixes
+systemctl --global disable zbook-touchpad-corner.service 2>/dev/null
+rm -f /usr/local/bin/zbook-touchpad-corner /etc/udev/rules.d/70-zbook-touchpad.rules \
+	/etc/systemd/user/zbook-touchpad-corner.service
 echo "Removed. Reboot to go back to Ubuntu's drivers."

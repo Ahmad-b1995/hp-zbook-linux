@@ -12,6 +12,7 @@
 #   hp-wmi           hide the fan control the firmware rejects (backport of mainline e931e54)
 #   conexant         speaker-mute (GPIO0) and mic-mute (GPIO1) LEDs, 103c:80d6
 #   wireless-hotkey  airplane mode LED through WLBU.WLED
+#   psmouse          touchpad on/off LED (RMI F30 over PS/2) for the Synaptics driver
 set -uo pipefail
 
 KVER="${1:-$(uname -r)}"
@@ -125,6 +126,29 @@ else
 	cp "$LIB/wireless-hotkey.c" "$d/wireless-hotkey.c"
 	echo 'obj-m := wireless-hotkey.o' > "$d/Kbuild"
 	build wireless-hotkey "$d" wireless-hotkey.ko
+fi
+
+# --- psmouse (synaptics.c with the touchpad LED; the module is built from all its sources)
+d="$WORK/psmouse"; mkdir -p "$d"
+if ! fetch drivers/input/mouse/Makefile "$d/Makefile.ubuntu"; then
+	skip psmouse psmouse.ko "could not download its source"
+else
+	ok=1
+	{ echo 'obj-m := psmouse.o'; grep -E '^psmouse' "$d/Makefile.ubuntu"; } > "$d/Kbuild"
+	for o in $(grep -E '^psmouse' "$d/Makefile.ubuntu" | grep -oE '[a-z0-9_-]+\.o' | sed 's/\.o$//'); do
+		fetch "drivers/input/mouse/$o.c" "$d/$o.c" || ok=0
+		fetch "drivers/input/mouse/$o.h" "$d/$o.h" 2>/dev/null || rm -f "$d/$o.h"
+	done
+	for h in psmouse.h elan_i2c.h; do fetch "drivers/input/mouse/$h" "$d/$h" || ok=0; done
+	if [ $ok = 0 ]; then
+		skip psmouse psmouse.ko "could not download its source"
+	elif grep -q rmi_led_pnp_ids "$d/synaptics.c"; then
+		skip psmouse psmouse.ko "fix already in Ubuntu's source"
+	elif patch -s -p4 -d "$d" < "$LIB/synaptics-rmi-led.diff" >/dev/null 2>&1; then
+		build psmouse "$d" psmouse.ko
+	else
+		skip psmouse psmouse.ko "the change no longer applies to this source"
+	fi
 fi
 
 [ -n "${ZBOOK_TEST:-}" ] || depmod "$KVER"

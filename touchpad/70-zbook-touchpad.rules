@@ -1,0 +1,4 @@
+# HP ZBook 17 G3 touchpad corner tap (zbook-touchpad-corner):
+# let the logged-in user read the touchpad's events, and set its on/off LED.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="SynPS/2 Synaptics TouchPad", TAG+="uaccess"
+SUBSYSTEM=="leds", KERNEL=="synaptics::touchpad_disabled", ACTION=="add", RUN+="/bin/chmod 0666 /sys%p/brightness"

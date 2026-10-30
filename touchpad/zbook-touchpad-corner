@@ -1,0 +1,162 @@
+#!/usr/bin/python3 -I
+"""Double tap the top left corner of the touchpad to turn it off or on, as on Windows.
+
+Watches the Synaptics touchpad's raw events (read-only, never grabbed), toggles GNOME's own
+touchpad setting (org.gnome.desktop.peripherals.touchpad send-events), and keeps the touchpad's
+LED (synaptics::touchpad_disabled, from the patched psmouse driver) lit while it is off,
+whichever way it was turned off. Corner size and timing follow HP's Windows driver settings.
+"""
+
+import fcntl
+import os
+import struct
+import sys
+import time
+
+from gi.repository import Gio, GLib
+
+TOUCHPAD_NAMES = ("SynPS/2 Synaptics TouchPad",)
+LED = "/sys/class/leds/synaptics::touchpad_disabled/brightness"
+SCHEMA = "org.gnome.desktop.peripherals.touchpad"
+
+CORNER_WIDTH = 475      # HP: TopLeftCornerWidth 0x1db, in touchpad units
+CORNER_HEIGHT = 650     # HP: TopLeftCornerHeight 0x28a
+TAP_MAX_S = 0.25        # a touch shorter than this is a tap
+TAP_MAX_MOVE = 120      # touchpad units a tap may wander
+DOUBLE_TAP_S = 0.45     # both taps within this time
+
+EV_SYN, EV_KEY, EV_ABS = 0x00, 0x01, 0x03
+SYN_REPORT = 0x00
+BTN_TOUCH, ABS_X, ABS_Y = 0x14A, 0x00, 0x01
+EVENT = struct.Struct("llHHi")
+ABSINFO = struct.Struct("iiiiii")
+
+
+def eviocgabs(axis):
+    return (2 << 30) | (ABSINFO.size << 16) | (ord("E") << 8) | (0x40 + axis)
+
+
+def find_touchpad():
+    name, handlers = None, None
+    with open("/proc/bus/input/devices") as f:
+        for line in f:
+            if line.startswith("N: Name="):
+                name = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("H: Handlers=") and name in TOUCHPAD_NAMES:
+                for h in line.split("=", 1)[1].split():
+                    if h.startswith("event"):
+                        return "/dev/input/" + h
+    return None
+
+
+class Corner:
+    def __init__(self, settings):
+        self.settings = settings
+        self.fd = None
+        self.watch = 0
+        self.x = self.y = 0
+        self.touching = False   # BTN_TOUCH as of the last complete frame
+        self.pressed = False    # BTN_TOUCH in the frame being read
+        self.down = None        # (time, x, y) where the current touch started
+        self.last_tap = 0.0
+        settings.connect("changed::send-events", lambda *_: self.sync_led())
+        self.sync_led()
+        self.open()
+
+    def sync_led(self):
+        off = self.settings.get_string("send-events") == "disabled"
+        try:
+            with open(LED, "w") as f:
+                f.write("1" if off else "0")
+        except OSError as e:
+            print(f"cannot set the touchpad LED: {e}", file=sys.stderr)
+
+    def open(self):
+        path = find_touchpad()
+        if not path:
+            GLib.timeout_add_seconds(5, self.retry)
+            return
+        try:
+            self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as e:
+            print(f"cannot open {path}: {e}", file=sys.stderr)
+            GLib.timeout_add_seconds(5, self.retry)
+            return
+        x = ABSINFO.unpack(fcntl.ioctl(self.fd, eviocgabs(ABS_X), bytes(ABSINFO.size)))
+        y = ABSINFO.unpack(fcntl.ioctl(self.fd, eviocgabs(ABS_Y), bytes(ABSINFO.size)))
+        self.x_min, self.y_min = x[1], y[1]
+        self.watch = GLib.io_add_watch(self.fd, GLib.IO_IN | GLib.IO_ERR | GLib.IO_HUP, self.read)
+        print(f"watching {path}, corner x < {self.x_min + CORNER_WIDTH}, y < {self.y_min + CORNER_HEIGHT}")
+
+    def retry(self):
+        self.open()
+        return GLib.SOURCE_REMOVE
+
+    def in_corner(self, x, y):
+        return x < self.x_min + CORNER_WIDTH and y < self.y_min + CORNER_HEIGHT
+
+    def read(self, fd, condition):
+        if condition & (GLib.IO_ERR | GLib.IO_HUP):
+            return self.reopen()
+        try:
+            data = os.read(fd, EVENT.size * 64)
+        except BlockingIOError:
+            return GLib.SOURCE_CONTINUE
+        except OSError:
+            return self.reopen()
+        for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+            _, _, etype, code, value = EVENT.unpack_from(data, i)
+            if etype == EV_ABS and code == ABS_X:
+                self.x = value
+            elif etype == EV_ABS and code == ABS_Y:
+                self.y = value
+            elif etype == EV_KEY and code == BTN_TOUCH:
+                self.pressed = bool(value)
+            elif etype == EV_SYN and code == SYN_REPORT:
+                self.frame()
+        return GLib.SOURCE_CONTINUE
+
+    def frame(self):
+        # Act on complete frames only: the order of events inside a frame is not fixed.
+        if self.pressed == self.touching:
+            return
+        self.touching = self.pressed
+        now = time.monotonic()
+        if self.pressed:
+            self.down = (now, self.x, self.y)
+            return
+        if not self.down:
+            return
+        start, x0, y0 = self.down
+        self.down = None
+        tap = (now - start < TAP_MAX_S and abs(self.x - x0) < TAP_MAX_MOVE
+               and abs(self.y - y0) < TAP_MAX_MOVE and self.in_corner(x0, y0))
+        if not tap:
+            self.last_tap = 0.0
+            return
+        if now - self.last_tap < DOUBLE_TAP_S:
+            self.last_tap = 0.0
+            self.toggle()
+        else:
+            self.last_tap = now
+
+    def toggle(self):
+        off = self.settings.get_string("send-events") == "disabled"
+        self.settings.set_string("send-events", "enabled" if off else "disabled")
+
+    def reopen(self):
+        if self.fd is not None:
+            os.close(self.fd)
+        self.fd = None
+        GLib.timeout_add_seconds(2, self.retry)
+        return GLib.SOURCE_REMOVE
+
+
+def main():
+    settings = Gio.Settings.new(SCHEMA)
+    Corner(settings)
+    GLib.MainLoop().run()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,12 @@
+[Unit]
+Description=Double tap the touchpad's top left corner to turn it off or on (HP ZBook)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/zbook-touchpad-corner
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
