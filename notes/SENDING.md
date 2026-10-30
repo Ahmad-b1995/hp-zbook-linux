@@ -1,6 +1,16 @@
 # Sending the kernel patch
 
-## Airplane mode LED patch (tested 2026-10-30, not sent yet)
+## Touchpad LED patch (not sent yet; check the LED survives suspend first)
+
+Branch synaptics-rmi-led in ~/Projects/linux, based on the input tree's next branch.
+
+    cd ~/Projects/linux && git checkout synaptics-rmi-led && git commit --amend -s --no-edit && \
+      git format-patch -1 -o ~/Projects/hp-zbook-linux/patches/
+    ./scripts/checkpatch.pl --no-tree ~/Projects/hp-zbook-linux/patches/0001-Input-synaptics-*.patch
+    git send-email --to=dmitry.torokhov@gmail.com --cc=linux-input@vger.kernel.org \
+      --cc=linux-kernel@vger.kernel.org ~/Projects/hp-zbook-linux/patches/0001-Input-synaptics-*.patch
+
+## Airplane mode LED patch (sent 2026-10-30) (tested 2026-10-30, not sent yet)
 
 Branch wireless-hotkey-wled in ~/Projects/linux, based on pdx86/for-next.
 
