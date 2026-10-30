@@ -1,6 +1,17 @@
 # Sending the kernel patch
 
-## Current: v2 (replaces v1, sent 2026-10-29)
+## Airplane mode LED patch (tested 2026-10-30, not sent yet)
+
+Branch wireless-hotkey-wled in ~/Projects/linux, based on pdx86/for-next.
+
+    cd ~/Projects/linux && git checkout wireless-hotkey-wled && git commit --amend -s --no-edit && \
+      git format-patch -1 -o ~/Projects/hp-zbook-linux/patches/
+    ./scripts/checkpatch.pl --no-tree ~/Projects/hp-zbook-linux/patches/0001-platform-x86-wireless-hotkey-*.patch
+    git send-email --to=hansg@kernel.org --to=ilpo.jarvinen@linux.intel.com \
+      --cc=platform-driver-x86@vger.kernel.org --cc=linux-kernel@vger.kernel.org \
+      ~/Projects/hp-zbook-linux/patches/0001-platform-x86-wireless-hotkey-*.patch
+
+## Audio v2 (sent 2026-10-30, replaces v1 sent 2026-10-29)
 
 v1 wrongly said the mic-mute LED is not on the codec. v2 is one line using the existing
 CXT_FIXUP_MUTE_LED_GPIO (GPIO0 speaker, GPIO1 mic). Branch zbook17g3-conexant-mute-led-v2;
