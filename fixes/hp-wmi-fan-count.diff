@@ -1,0 +1,50 @@
+--- hp-wmi.c.orig	2026-10-29 19:05:18.416247626 +0330
++++ hp-wmi.c	2026-10-29 19:05:18.430400919 +0330
+@@ -472,6 +472,7 @@
+ 	int gpu_delta;
+ 	u8 mode;
+ 	u8 pwm;
++	int fan_count;
+ 	struct delayed_work keep_alive_dwork;
+ };
+ 
+@@ -2410,12 +2411,18 @@
+ 				       enum hwmon_sensor_types type,
+ 				       u32 attr, int channel)
+ {
++	const struct hp_wmi_hwmon_priv *priv = data;
++
+ 	switch (type) {
+ 	case hwmon_pwm:
++		if (priv->fan_count <= 0)
++			return 0;
+ 		if (attr == hwmon_pwm_input && !is_victus_s_thermal_profile())
+ 			return 0;
+ 		return 0644;
+ 	case hwmon_fan:
++		if (priv->fan_count <= 0)
++			return 0;
+ 		if (is_victus_s_thermal_profile()) {
+ 			if (hp_wmi_get_fan_speed_victus_s(channel) >= 0)
+ 				return 0444;
+@@ -2576,6 +2583,7 @@
+ 
+ 	/* Default behaviour on hwmon init is automatic mode */
+ 	priv->mode = PWM_MODE_AUTO;
++	priv->fan_count = hp_wmi_get_fan_count_userdefine_trigger();
+ 
+ 	/* Bypass all non-Victus S devices */
+ 	if (!is_victus_s_thermal_profile())
+@@ -2653,6 +2661,12 @@
+ 
+ 	INIT_DELAYED_WORK(&priv->keep_alive_dwork, hp_wmi_hwmon_keep_alive_handler);
+ 	platform_set_drvdata(hp_wmi_platform_dev, priv);
++
++	if (priv->fan_count <= 0) {
++		dev_info(dev, "No usable fans reported by WMI, disabling fan support\n");
++		return 0;
++	}
++
+ 	ret = hp_wmi_apply_fan_settings(priv);
+ 	if (ret)
+ 		dev_warn(dev, "Failed to apply initial fan settings: %d\n", ret);

@@ -1,4 +1,4 @@
-From b42db05e68c20ebb83ed8fe8ff5ad96f74ed6f2a Mon Sep 17 00:00:00 2001
+From 67e635eeb325724532c730a35e03d3bde2ddc7db Mon Sep 17 00:00:00 2001
 From: ahmad baghereslami <ahmad.b1995@gmail.com>
 Date: Fri, 30 Oct 2026 08:35:34 +0330
 Subject: [PATCH] platform/x86: wireless-hotkey: Drive the HP airplane mode LED
@@ -23,6 +23,8 @@ LED follows airplane mode toggled with the button and with rfkill.
 Reading HP's Windows driver (Ghidra) and the ACPI tables, and writing
 this patch, were done with the help of an AI coding assistant (Claude);
 I tested the LED on the machine.
+
+Signed-off-by: ahmad baghereslami <ahmad.b1995@gmail.com>
 ---
  drivers/platform/x86/Kconfig           |  1 +
  drivers/platform/x86/wireless-hotkey.c | 65 +++++++++++++++++++++++++-
