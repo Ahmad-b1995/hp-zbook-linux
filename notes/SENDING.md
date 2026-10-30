@@ -1,6 +1,6 @@
 # Sending the kernel patch
 
-## Touchpad LED patch (not sent yet; check the LED survives suspend first)
+## Touchpad LED patch (sent 2026-10-30)
 
 Branch synaptics-rmi-led in ~/Projects/linux, based on the input tree's next branch.
 

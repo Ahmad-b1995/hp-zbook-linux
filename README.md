@@ -9,7 +9,7 @@ Ubuntu kernel.
 | --- | --- | --- | --- |
 | Speaker-mute and mic-mute LEDs | never light | follow mute (codec GPIO0 and GPIO1) | [patch v2](https://lore.kernel.org/all/20261030045626.1608040-1-ahmad.b1995@gmail.com/) sent to ALSA |
 | Airplane mode LED on the wireless button | stays white or amber | white with radios on, amber in airplane mode, kept across suspend | [patch](https://lore.kernel.org/all/20261030051839.1625859-1-ahmad.b1995@gmail.com/) sent to platform/x86 |
-| Touchpad on/off LED and double tap in the top-left corner | no gesture, LED never lights | double tap turns the touchpad off/on through GNOME's own setting; the LED follows it (also when switched in Settings) and survives suspend | kernel patch to the Synaptics driver (LED on RMI function F30 over PS/2), ready to send |
+| Touchpad on/off LED and double tap in the top-left corner | no gesture, LED never lights | double tap turns the touchpad off/on through GNOME's own setting; the LED follows it (also when switched in Settings) and survives suspend | [patch](https://lore.kernel.org/all/20261030070821.1716595-1-ahmad.b1995@gmail.com/) sent to input (Synaptics driver, LED on RMI function F30 over PS/2) |
 | Fan speed and temperatures | not shown | CPU and GPU fan RPM and five temperatures in `sensors` (hp-wmi-sensors, loaded at boot) | the driver exists; autoloading is deliberately off upstream |
 | Boot warning `hp-wmi: Failed to apply initial fan settings: -22` and a `pwm1_enable` that cannot be written | present on Ubuntu 26.04's 7.0 kernels | gone | fixed in mainline by e931e54edb0f; Ubuntu has not picked it up |
 

@@ -1,4 +1,4 @@
-From e8bd949a86e917d4c23666a20628233d61357fe0 Mon Sep 17 00:00:00 2001
+From 60df16b03702be472f3c804571de8363d06d162b Mon Sep 17 00:00:00 2001
 From: ahmad baghereslami <ahmad.b1995@gmail.com>
 Date: Fri, 30 Oct 2026 09:47:05 +0330
 Subject: [PATCH] Input: synaptics - support the touchpad LED on RMI function
