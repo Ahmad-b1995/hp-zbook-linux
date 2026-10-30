@@ -1,4 +1,4 @@
-From bff956b9a3a517ffe319a134d215ea5bda5f4709 Mon Sep 17 00:00:00 2001
+From e8bd949a86e917d4c23666a20628233d61357fe0 Mon Sep 17 00:00:00 2001
 From: ahmad baghereslami <ahmad.b1995@gmail.com>
 Date: Fri, 30 Oct 2026 09:47:05 +0330
 Subject: [PATCH] Input: synaptics - support the touchpad LED on RMI function
@@ -34,6 +34,8 @@ tap in the corner keeps the LED in step with GNOME's touchpad setting.
 Reading HP's Windows driver (Ghidra) and writing this patch were done
 with the help of an AI coding assistant (Claude); I tested the LED and
 the touchpad on the machine.
+
+Signed-off-by: ahmad baghereslami <ahmad.b1995@gmail.com>
 ---
  drivers/input/mouse/synaptics.c | 241 ++++++++++++++++++++++++++++++++
  drivers/input/mouse/synaptics.h |  13 ++

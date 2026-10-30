@@ -9,6 +9,7 @@ Ubuntu kernel.
 | --- | --- | --- | --- |
 | Speaker-mute and mic-mute LEDs | never light | follow mute (codec GPIO0 and GPIO1) | [patch v2](https://lore.kernel.org/all/20261030045626.1608040-1-ahmad.b1995@gmail.com/) sent to ALSA |
 | Airplane mode LED on the wireless button | stays white or amber | white with radios on, amber in airplane mode, kept across suspend | [patch](https://lore.kernel.org/all/20261030051839.1625859-1-ahmad.b1995@gmail.com/) sent to platform/x86 |
+| Touchpad on/off LED and double tap in the top-left corner | no gesture, LED never lights | double tap turns the touchpad off/on through GNOME's own setting; the LED follows it (also when switched in Settings) and survives suspend | kernel patch to the Synaptics driver (LED on RMI function F30 over PS/2), ready to send |
 | Fan speed and temperatures | not shown | CPU and GPU fan RPM and five temperatures in `sensors` (hp-wmi-sensors, loaded at boot) | the driver exists; autoloading is deliberately off upstream |
 | Boot warning `hp-wmi: Failed to apply initial fan settings: -22` and a `pwm1_enable` that cannot be written | present on Ubuntu 26.04's 7.0 kernels | gone | fixed in mainline by e931e54edb0f; Ubuntu has not picked it up |
 
@@ -21,7 +22,9 @@ changes; the LED quirk is keyed to this board (PCI SSID 103c:80d6), the other fi
     git clone https://github.com/Ahmad-b1995/hp-zbook-linux.git
     sudo bash hp-zbook-linux/fixes/install.sh
 
-Then reboot. `install.sh` builds the fixes for every installed kernel and adds hooks to
+Then reboot. `install.sh` also installs `zbook-touchpad-corner` (a small user service for the
+corner double tap, `touchpad/`) and a udev rule that lets the logged-in user read the touchpad
+and set its LED. It builds the fixes for every installed kernel and adds hooks to
 `/etc/kernel/` so every new kernel gets them too. For each fix it downloads Ubuntu's own source
 of that driver for exactly that kernel from git.launchpad.net, applies the change and builds it;
 when Ubuntu's source already contains the fix (after the patches are merged), that fix is
@@ -33,8 +36,6 @@ update. The log is `/var/log/zbook-fixes.log`; `fixes/uninstall.sh` removes ever
 - **Keyboard backlight control.** Fn+F3 is handled inside the embedded controller: there is no
   ACPI method or WMI command for it and no EC register follows it, so the operating system
   cannot see or set it. It works on its own; only software control is missing.
-- **Touchpad on/off LED** (double tap in the top-left corner). Linux has neither the gesture
-  nor a way to light that LED; see `notes/windows-drivers.md`.
 - **Touchpad over SMBus** (`psmouse.synaptics_intertouch=1`) works, but then the touchpad no
   longer wakes the keyboard backlight, so it is left on PS/2 (`notes/touchpad-smbus-withdrawn.md`).
 
