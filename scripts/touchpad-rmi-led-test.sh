@@ -35,7 +35,8 @@ RAW="$(ls /dev/serio_raw* 2>/dev/null | head -n1)"
 [ -n "$RAW" ] || { echo "serio_raw did not attach" >&2; exit 1; }
 echo "Touchpad handed to $RAW; it stops working until the end of the test."
 
-python3 -I - "$RAW" "$OUT/log.txt" <<'EOF'
+PY="$(mktemp --suffix=.py)"
+cat > "$PY" <<'EOF'
 import os, select, sys, time
 
 raw, logpath = sys.argv[1], sys.argv[2]
@@ -142,4 +143,6 @@ try:
 except Exception as e:
     note("error:", e)
 EOF
+python3 -I "$PY" "$RAW" "$OUT/log.txt"
+rm -f "$PY"
 echo "Handing the touchpad back to psmouse (it resets)."
