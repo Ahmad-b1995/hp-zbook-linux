@@ -151,5 +151,16 @@ else
 	fi
 fi
 
-[ -n "${ZBOOK_TEST:-}" ] || depmod "$KVER"
+[ -n "${ZBOOK_TEST:-}" ] && exit 0
+depmod "$KVER"
+
+# psmouse is loaded from the initramfs at boot, so it must contain the patched module too.
+# The kernel's own initramfs hook runs before this one; rebuild it once more afterwards.
+if [ -f "/boot/initrd.img-$KVER" ]; then
+	if command -v update-initramfs >/dev/null; then
+		update-initramfs -u -k "$KVER" >/dev/null 2>&1 && log "initramfs updated" || log "initramfs update failed"
+	elif command -v dracut >/dev/null; then
+		dracut -f --kver "$KVER" >/dev/null 2>&1 && log "initramfs updated" || log "initramfs update failed"
+	fi
+fi
 exit 0

@@ -68,8 +68,19 @@ class Corner:
         try:
             with open(LED, "w") as f:
                 f.write("1" if off else "0")
+            self.led_warned = False
         except OSError as e:
-            print(f"cannot set the touchpad LED: {e}", file=sys.stderr)
+            # The LED appears once the patched psmouse driver is loaded; keep trying.
+            if not getattr(self, "led_warned", False):
+                print(f"cannot set the touchpad LED (will retry): {e}", file=sys.stderr)
+                self.led_warned = True
+            if not getattr(self, "led_retry", 0):
+                self.led_retry = GLib.timeout_add_seconds(5, self.retry_led)
+
+    def retry_led(self):
+        self.led_retry = 0
+        self.sync_led()
+        return GLib.SOURCE_REMOVE
 
     def open(self):
         path = find_touchpad()
