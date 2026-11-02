@@ -1,8 +1,35 @@
+diff --git a/drivers/input/mouse/psmouse-base.c b/drivers/input/mouse/psmouse-base.c
+index 231646882..020821be1 100644
+--- a/drivers/input/mouse/psmouse-base.c
++++ b/drivers/input/mouse/psmouse-base.c
+@@ -111,7 +111,7 @@ ATTRIBUTE_GROUPS(psmouse_dev);
+  * rarely more than one PS/2 mouse connected and since semaphore
+  * is taken in "slow" paths it is not worth it.
+  */
+-static DEFINE_MUTEX(psmouse_mutex);
++DEFINE_MUTEX(psmouse_mutex);
+ 
+ struct psmouse *psmouse_from_serio(struct serio *serio)
+ {
+diff --git a/drivers/input/mouse/psmouse.h b/drivers/input/mouse/psmouse.h
+index 90ed8cd15..77c137a57 100644
+--- a/drivers/input/mouse/psmouse.h
++++ b/drivers/input/mouse/psmouse.h
+@@ -136,6 +136,9 @@ int psmouse_reset(struct psmouse *psmouse);
+ void psmouse_set_state(struct psmouse *psmouse, enum psmouse_state new_state);
+ void psmouse_set_resolution(struct psmouse *psmouse, unsigned int resolution);
+ psmouse_ret_t psmouse_process_byte(struct psmouse *psmouse);
++/* Serializes connecting, reconnecting and reconfiguring PS/2 mice */
++extern struct mutex psmouse_mutex;
++
+ int psmouse_activate(struct psmouse *psmouse);
+ int psmouse_deactivate(struct psmouse *psmouse);
+ bool psmouse_matches_pnp_id(struct psmouse *psmouse, const char * const ids[]);
 diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
-index b007e642e..bf1c6c738 100644
+index b007e642e..4186e4f53 100644
 --- a/drivers/input/mouse/synaptics.c
 +++ b/drivers/input/mouse/synaptics.c
-@@ -589,6 +589,236 @@ static int synaptics_set_advanced_gesture_mode(struct psmouse *psmouse)
+@@ -589,6 +589,278 @@ static int synaptics_set_advanced_gesture_mode(struct psmouse *psmouse)
  	return 0;
  }
  
@@ -28,7 +55,9 @@ index b007e642e..bf1c6c738 100644
 +#define SYN_RMI_F30			0x30
 +#define SYN_RMI_F30_HAS_LED		BIT(2)
 +#define SYN_RMI_F30_HAS_GPIO		BIT(3)
++#define SYN_RMI_F30_COUNT		GENMASK(4, 0)
 +#define SYN_RMI_LED_BRIGHTNESS		0x0b	/* as set by HP's Windows driver */
++#define SYN_RMI_LED_RETRY_MS		50
 +
 +static int synaptics_rmi_write(struct psmouse *psmouse, u8 reg, u8 val)
 +{
@@ -105,7 +134,8 @@ index b007e642e..bf1c6c738 100644
 +			if (error)
 +				return error;
 +
-+			if (!(caps & SYN_RMI_F30_HAS_LED))
++			count &= SYN_RMI_F30_COUNT;
++			if (!(caps & SYN_RMI_F30_HAS_LED) || count > 8)
 +				return -ENODEV;
 +
 +			priv->rmi_led_page = page;
@@ -116,13 +146,17 @@ index b007e642e..bf1c6c738 100644
 +				return 0;
 +			}
 +
-+			/* GPIO/LED select: the LED is the first set bit */
++			/*
++			 * GPIO/LED select: the LED is the first set bit. The
++			 * brightness registers follow one register for each
++			 * pin used as a GPIO, so count all of those.
++			 */
 +			error = synaptics_rmi_read(psmouse, ctrl, &gpios);
 +			if (error)
 +				return error;
 +
 +			priv->rmi_led_mask = 0;
-+			for (i = 0, zeros = 0; i < min(count, 8); i++) {
++			for (i = 0, zeros = 0; i < count; i++) {
 +				if (!(gpios & BIT(i)))
 +					zeros++;
 +				else if (!priv->rmi_led_mask)
@@ -170,33 +204,55 @@ index b007e642e..bf1c6c738 100644
 +	return synaptics_rmi_write(psmouse, priv->rmi_led_ctrl, val);
 +}
 +
-+static int synaptics_set_mode(struct psmouse *psmouse);
++/*
++ * Runs with psmouse_mutex held, like the protected psmouse attributes, so
++ * that it does not race with reconnect, resync or attribute changes.
++ * synaptics_disconnect() cancels it with psmouse_mutex held, so it must not
++ * wait for the mutex: when it is busy, try again a little later.
++ */
++static void synaptics_rmi_led_work(struct work_struct *work)
++{
++	struct synaptics_data *priv = container_of(to_delayed_work(work),
++						   struct synaptics_data,
++						   rmi_led_work);
++	struct psmouse *psmouse = priv->psmouse;
++	int error;
 +
-+static int synaptics_rmi_led_set(struct led_classdev *led,
-+				 enum led_brightness value)
++	if (!mutex_trylock(&psmouse_mutex)) {
++		schedule_delayed_work(&priv->rmi_led_work,
++				      msecs_to_jiffies(SYN_RMI_LED_RETRY_MS));
++		return;
++	}
++
++	if (psmouse->state == PSMOUSE_RESYNCING) {
++		schedule_delayed_work(&priv->rmi_led_work,
++				      msecs_to_jiffies(SYN_RMI_LED_RETRY_MS));
++	} else if (psmouse->state == PSMOUSE_ACTIVATED) {
++		/* Otherwise the LED is restored on reconnect */
++		psmouse_deactivate(psmouse);
++
++		error = __synaptics_rmi_led_set(psmouse,
++						priv->rmi_led.brightness != LED_OFF);
++		if (error)
++			psmouse_warn(psmouse,
++				     "failed to set touchpad LED: %d\n", error);
++
++		/* Setting the mode byte again leaves RMI access */
++		if (synaptics_mode_cmd(psmouse, priv->mode))
++			psmouse_warn(psmouse, "failed to restore mode\n");
++
++		psmouse_activate(psmouse);
++	}
++
++	mutex_unlock(&psmouse_mutex);
++}
++
++static void synaptics_rmi_led_set(struct led_classdev *led,
++				  enum led_brightness value)
 +{
 +	struct synaptics_data *priv = container_of(led, struct synaptics_data, rmi_led);
-+	struct psmouse *psmouse = priv->psmouse;
-+	int error, ret;
 +
-+	guard(mutex)(&priv->rmi_led_lock);
-+
-+	if (psmouse->state != PSMOUSE_ACTIVATED)
-+		return -EBUSY;
-+
-+	error = psmouse_deactivate(psmouse);
-+	if (error)
-+		return error;
-+
-+	ret = __synaptics_rmi_led_set(psmouse, value != LED_OFF);
-+
-+	/* Setting the mode byte again leaves RMI access */
-+	error = synaptics_set_mode(psmouse);
-+	if (!ret)
-+		ret = error;
-+
-+	error = psmouse_activate(psmouse);
-+	return ret ?: error;
++	mod_delayed_work(system_wq, &priv->rmi_led_work, 0);
 +}
 +
 +static void synaptics_rmi_led_init(struct psmouse *psmouse)
@@ -221,14 +277,16 @@ index b007e642e..bf1c6c738 100644
 +	struct synaptics_data *priv = psmouse->private;
 +	int error;
 +
-+	if (!priv->has_rmi_led)
++	if (!IS_REACHABLE(CONFIG_LEDS_CLASS) || !priv->has_rmi_led)
 +		return;
 +
-+	mutex_init(&priv->rmi_led_lock);
 +	priv->psmouse = psmouse;
++	INIT_DELAYED_WORK(&priv->rmi_led_work, synaptics_rmi_led_work);
 +	priv->rmi_led.name = "synaptics::touchpad_disabled";
 +	priv->rmi_led.max_brightness = 1;
-+	priv->rmi_led.brightness_set_blocking = synaptics_rmi_led_set;
++	priv->rmi_led.brightness_set = synaptics_rmi_led_set;
++	/* synaptics_disconnect() resets the touchpad, which turns the LED off */
++	priv->rmi_led.flags = LED_RETAIN_AT_SHUTDOWN;
 +	error = led_classdev_register(&psmouse->ps2dev.serio->dev, &priv->rmi_led);
 +	if (error) {
 +		psmouse_warn(psmouse, "failed to register touchpad LED: %d\n", error);
@@ -236,20 +294,30 @@ index b007e642e..bf1c6c738 100644
 +	}
 +}
 +
++static void synaptics_rmi_led_unregister(struct psmouse *psmouse)
++{
++	struct synaptics_data *priv = psmouse->private;
++
++	if (!IS_REACHABLE(CONFIG_LEDS_CLASS) || !priv->has_rmi_led)
++		return;
++
++	led_classdev_unregister(&priv->rmi_led);
++	cancel_delayed_work_sync(&priv->rmi_led_work);
++}
++
  static int synaptics_set_mode(struct psmouse *psmouse)
  {
  	struct synaptics_data *priv = psmouse->private;
-@@ -1444,6 +1674,9 @@ static void synaptics_disconnect(struct psmouse *psmouse)
+@@ -1444,6 +1716,8 @@ static void synaptics_disconnect(struct psmouse *psmouse)
  {
  	struct synaptics_data *priv = psmouse->private;
  
-+	if (priv->has_rmi_led)
-+		led_classdev_unregister(&priv->rmi_led);
++	synaptics_rmi_led_unregister(psmouse);
 +
  	/*
  	 * We might have left a breadcrumb when trying to
  	 * set up SMbus companion.
-@@ -1496,6 +1729,10 @@ static int synaptics_reconnect(struct psmouse *psmouse)
+@@ -1496,6 +1770,10 @@ static int synaptics_reconnect(struct psmouse *psmouse)
  		return error;
  	}
  
@@ -260,7 +328,7 @@ index b007e642e..bf1c6c738 100644
  	error = synaptics_set_mode(psmouse);
  	if (error) {
  		psmouse_err(psmouse, "Unable to initialize device.\n");
-@@ -1616,6 +1853,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
+@@ -1616,6 +1894,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
  	 */
  	priv->is_forcepad = psmouse_matches_pnp_id(psmouse, forcepad_pnp_ids);
  
@@ -269,7 +337,7 @@ index b007e642e..bf1c6c738 100644
  	err = synaptics_set_mode(psmouse);
  	if (err) {
  		psmouse_err(psmouse, "Unable to initialize device.\n");
-@@ -1693,6 +1932,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
+@@ -1693,6 +1973,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
  		}
  	}
  
@@ -279,7 +347,7 @@ index b007e642e..bf1c6c738 100644
  
   init_fail:
 diff --git a/drivers/input/mouse/synaptics.h b/drivers/input/mouse/synaptics.h
-index 3853165b6..1d36a207e 100644
+index 3853165b6..b792ac98a 100644
 --- a/drivers/input/mouse/synaptics.h
 +++ b/drivers/input/mouse/synaptics.h
 @@ -6,6 +6,9 @@
@@ -287,7 +355,7 @@ index 3853165b6..1d36a207e 100644
  #define _SYNAPTICS_H
  
 +#include <linux/leds.h>
-+#include <linux/mutex.h>
++#include <linux/workqueue.h>
 +
  /* synaptics queries */
  #define SYN_QUE_IDENTIFY		0x00
@@ -300,7 +368,7 @@ index 3853165b6..1d36a207e 100644
 +	/* Touchpad LED on RMI function $30, reached over PS/2 */
 +	struct psmouse				*psmouse;
 +	struct led_classdev			rmi_led;
-+	struct mutex				rmi_led_lock;
++	struct delayed_work			rmi_led_work;
 +	bool					has_rmi_led;
 +	u8					rmi_led_page;
 +	u8					rmi_led_ctrl;
