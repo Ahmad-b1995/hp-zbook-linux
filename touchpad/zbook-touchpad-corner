@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -I
+#!/usr/bin/python3 -Iu
 """Double tap the top left corner of the touchpad to turn it off or on, as on Windows.
 
 Watches the Synaptics touchpad's raw events (read-only, never grabbed), toggles GNOME's own
