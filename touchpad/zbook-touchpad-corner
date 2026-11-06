@@ -154,6 +154,7 @@ class Corner:
     def toggle(self):
         off = self.settings.get_string("send-events") == "disabled"
         self.settings.set_string("send-events", "enabled" if off else "disabled")
+        print("corner double tap: touchpad " + ("on" if off else "off"))
 
     def reopen(self):
         if self.fd is not None:
