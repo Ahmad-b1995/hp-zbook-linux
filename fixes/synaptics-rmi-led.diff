@@ -26,10 +26,10 @@ index 90ed8cd15..77c137a57 100644
  int psmouse_deactivate(struct psmouse *psmouse);
  bool psmouse_matches_pnp_id(struct psmouse *psmouse, const char * const ids[]);
 diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
-index b007e642e..4186e4f53 100644
+index b007e642e..ce51fd8a2 100644
 --- a/drivers/input/mouse/synaptics.c
 +++ b/drivers/input/mouse/synaptics.c
-@@ -589,6 +589,278 @@ static int synaptics_set_advanced_gesture_mode(struct psmouse *psmouse)
+@@ -589,6 +589,294 @@ static int synaptics_set_advanced_gesture_mode(struct psmouse *psmouse)
  	return 0;
  }
  
@@ -72,7 +72,11 @@ index b007e642e..4186e4f53 100644
 +	if (error)
 +		return error;
 +
-+	return ps2_command(ps2dev, &val, PSMOUSE_CMD_SETRATE);
++	error = ps2_command(ps2dev, &val, PSMOUSE_CMD_SETRATE);
++	if (error)
++		return error;
++
++	return 0;
 +}
 +
 +static int synaptics_rmi_read(struct psmouse *psmouse, u8 reg, u8 *val)
@@ -201,7 +205,11 @@ index b007e642e..4186e4f53 100644
 +		return error;
 +
 +	val = on ? val | priv->rmi_led_mask : val & ~priv->rmi_led_mask;
-+	return synaptics_rmi_write(psmouse, priv->rmi_led_ctrl, val);
++	error = synaptics_rmi_write(psmouse, priv->rmi_led_ctrl, val);
++	if (error)
++		return error;
++
++	return 0;
 +}
 +
 +/*
@@ -232,7 +240,7 @@ index b007e642e..4186e4f53 100644
 +		psmouse_deactivate(psmouse);
 +
 +		error = __synaptics_rmi_led_set(psmouse,
-+						priv->rmi_led.brightness != LED_OFF);
++						READ_ONCE(priv->rmi_led_on));
 +		if (error)
 +			psmouse_warn(psmouse,
 +				     "failed to set touchpad LED: %d\n", error);
@@ -252,7 +260,8 @@ index b007e642e..4186e4f53 100644
 +{
 +	struct synaptics_data *priv = container_of(led, struct synaptics_data, rmi_led);
 +
-+	mod_delayed_work(system_wq, &priv->rmi_led_work, 0);
++	WRITE_ONCE(priv->rmi_led_on, value != LED_OFF);
++	mod_delayed_work(system_percpu_wq, &priv->rmi_led_work, 0);
 +}
 +
 +static void synaptics_rmi_led_init(struct psmouse *psmouse)
@@ -285,7 +294,7 @@ index b007e642e..4186e4f53 100644
 +	priv->rmi_led.name = "synaptics::touchpad_disabled";
 +	priv->rmi_led.max_brightness = 1;
 +	priv->rmi_led.brightness_set = synaptics_rmi_led_set;
-+	/* synaptics_disconnect() resets the touchpad, which turns the LED off */
++	/* synaptics_rmi_led_unregister() turns the LED off itself */
 +	priv->rmi_led.flags = LED_RETAIN_AT_SHUTDOWN;
 +	error = led_classdev_register(&psmouse->ps2dev.serio->dev, &priv->rmi_led);
 +	if (error) {
@@ -303,12 +312,19 @@ index b007e642e..4186e4f53 100644
 +
 +	led_classdev_unregister(&priv->rmi_led);
 +	cancel_delayed_work_sync(&priv->rmi_led_work);
++
++	/*
++	 * The touchpad is in command mode here. Mode byte 0, which
++	 * synaptics_reset() sets next, leaves RMI access but keeps the LED lit.
++	 */
++	if (priv->rmi_led_on)
++		__synaptics_rmi_led_set(psmouse, false);
 +}
 +
  static int synaptics_set_mode(struct psmouse *psmouse)
  {
  	struct synaptics_data *priv = psmouse->private;
-@@ -1444,6 +1716,8 @@ static void synaptics_disconnect(struct psmouse *psmouse)
+@@ -1444,6 +1732,8 @@ static void synaptics_disconnect(struct psmouse *psmouse)
  {
  	struct synaptics_data *priv = psmouse->private;
  
@@ -317,18 +333,18 @@ index b007e642e..4186e4f53 100644
  	/*
  	 * We might have left a breadcrumb when trying to
  	 * set up SMbus companion.
-@@ -1496,6 +1770,10 @@ static int synaptics_reconnect(struct psmouse *psmouse)
+@@ -1496,6 +1786,10 @@ static int synaptics_reconnect(struct psmouse *psmouse)
  		return error;
  	}
  
 +	/* The reset turned the LED off; the mode byte below leaves RMI access. */
-+	if (priv->has_rmi_led && priv->rmi_led.brightness)
++	if (priv->has_rmi_led && READ_ONCE(priv->rmi_led_on))
 +		__synaptics_rmi_led_set(psmouse, true);
 +
  	error = synaptics_set_mode(psmouse);
  	if (error) {
  		psmouse_err(psmouse, "Unable to initialize device.\n");
-@@ -1616,6 +1894,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
+@@ -1616,6 +1910,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
  	 */
  	priv->is_forcepad = psmouse_matches_pnp_id(psmouse, forcepad_pnp_ids);
  
@@ -337,7 +353,7 @@ index b007e642e..4186e4f53 100644
  	err = synaptics_set_mode(psmouse);
  	if (err) {
  		psmouse_err(psmouse, "Unable to initialize device.\n");
-@@ -1693,6 +1973,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
+@@ -1693,6 +1989,8 @@ static int synaptics_init_ps2(struct psmouse *psmouse,
  		}
  	}
  
@@ -347,7 +363,7 @@ index b007e642e..4186e4f53 100644
  
   init_fail:
 diff --git a/drivers/input/mouse/synaptics.h b/drivers/input/mouse/synaptics.h
-index 3853165b6..b792ac98a 100644
+index 3853165b6..fb337be9e 100644
 --- a/drivers/input/mouse/synaptics.h
 +++ b/drivers/input/mouse/synaptics.h
 @@ -6,6 +6,9 @@
@@ -360,7 +376,7 @@ index 3853165b6..b792ac98a 100644
  /* synaptics queries */
  #define SYN_QUE_IDENTIFY		0x00
  #define SYN_QUE_MODES			0x01
-@@ -202,6 +205,16 @@ struct synaptics_data {
+@@ -202,6 +205,17 @@ struct synaptics_data {
  	bool					press;
  	bool					report_press;
  	bool					is_forcepad;
@@ -370,6 +386,7 @@ index 3853165b6..b792ac98a 100644
 +	struct led_classdev			rmi_led;
 +	struct delayed_work			rmi_led_work;
 +	bool					has_rmi_led;
++	bool					rmi_led_on;
 +	u8					rmi_led_page;
 +	u8					rmi_led_ctrl;
 +	u8					rmi_led_mask;
